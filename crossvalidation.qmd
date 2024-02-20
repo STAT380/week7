@@ -1,0 +1,221 @@
+---
+title: "cv"
+format: ipynb
+editor: visual
+---
+
+```{r}
+packages <- c(
+    # Old packages
+    "ISLR2",
+    "dplyr",
+    "tidyr",
+    "readr",
+    "purrr",
+    "glmnet",
+    "caret",
+    "repr",
+    # NEW
+    "torch",
+    "mlbench"
+)
+
+# renv::install(packages)
+sapply(packages, require, character.only=TRUE)
+```
+
+## Cross validation
+
+```{r}
+#| vscode: {languageId: r}
+df <- Boston %>% drop_na()
+head(df)
+dim(df)
+```
+
+Split the data into training and testing sets
+
+```{r}
+# randomly sample half of the data
+#| vscode: {languageId: r}
+fold <- sample(1:nrow(df), nrow(df)/2)
+fold
+```
+
+```{r}
+#| vscode: {languageId: r}
+train <- df %>% slice(-fold)
+test  <- df %>% slice(fold)
+```
+
+```{r}
+#| vscode: {languageId: r}
+nrow(test) + nrow(train) - nrow(df)
+```
+
+```{r}
+#| vscode: {languageId: r}
+model <- lm(medv ~ ., data = train)
+summary(model)
+```
+
+```{r}
+#| vscode: {languageId: r}
+y_test <- predict(model, newdata = test)
+```
+
+```{r}
+#| vscode: {languageId: r}
+mspe <- mean((test$medv - y_test)^2)
+mspe
+```
+
+## k-Fold Cross Validation
+
+```{r}
+#| vscode: {languageId: r}
+x <- 1:12
+# a random permutation
+sample(x)
+# bootstrap resampling -- only if length(x) > 1 !
+sample(x, replace = TRUE)
+
+# randomly assigan group to each row
+k <- 5
+folds <- sample(1:k, nrow(df), replace=T)
+folds
+
+
+df_folds <- list()
+
+
+
+for(i in 1:k){
+    
+    df_folds[[i]] <- list()
+    
+    df_folds[[i]]$train = df[which(folds != i), ]
+    
+    df_folds[[i]]$test = df[which(folds == i), ]
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+nrow(df_folds[[2]]$train) + nrow(df_folds[[2]]$test) - nrow(df)
+```
+
+```{r}
+#| vscode: {languageId: r}
+nrow(df_folds[[3]]$train) + nrow(df_folds[[4]]$test) - nrow(df)
+```
+
+```{r}
+#| vscode: {languageId: r}
+kfold_mspe <- c()
+for(i in 1:k){
+    model <- lm(medv ~ ., df_folds[[i]]$train)
+    y_hat <- predict(model, df_folds[[i]]$test)
+    kfold_mspe[i] <- mean((y_hat - df_folds[[i]]$test$medv)^2)
+}
+kfold_mspe
+```
+
+```{r}
+#| vscode: {languageId: r}
+# mean(kfold_mspe)
+```
+
+## Wrapped in a function
+
+```{r}
+#| vscode: {languageId: r}
+make_folds <- function(df, k){
+    
+    folds <- sample(1:k, nrow(df), replace=T)
+
+    df_folds <- list()
+
+    for(i in 1:k){
+        
+        df_folds[[i]] <- list()
+        
+        df_folds[[i]]$train = df[which(folds != i), ]
+        
+        df_folds[[i]]$test = df[which(folds == i), ]
+    }
+    
+    return(df_folds)
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+cv_mspe <- function(formula, df_folds){
+    
+    kfold_mspe <- c()
+    
+    for(i in 1:length(df_folds)){
+        
+        model <- lm(formula, df_folds[[i]]$train)
+        
+        y_hat <- predict(model, df_folds[[i]]$test)
+        
+        kfold_mspe[i] <- mean((y_hat - df_folds[[i]]$test$medv)^2)
+    }
+    
+    return(mean(kfold_mspe))
+}
+```
+
+```{r}
+#| vscode: {languageId: r}
+cv_mspe(medv ~ ., df_folds)
+cv_mspe(medv ~ 1, df_folds)
+```
+
+### Using the`caret` package
+
+Define the training control for cross validation
+
+```{r}
+#| vscode: {languageId: r}
+ctrl <- trainControl(method = "cv", number = 5)
+```
+
+```{r}
+#| vscode: {languageId: r}
+#| ?train
+model <- train(medv ~ ., data = df, method = "lm", trControl = ctrl)
+summary(model)
+```
+
+```{r}
+#| vscode: {languageId: r}
+predictions <- predict(model, df)
+```
+
+### `caret` for LASSO
+
+#### Bias-variance tradeoff
+
+```{r}
+#| vscode: {languageId: r}
+ctrl <- trainControl(method = "cv", number = 5)
+
+# Define the tuning grid
+grid <- expand.grid(alpha = 1, lambda = seq(0, 0.1, by = 0.001))
+
+# Train the model using Lasso regression with cross-validation
+lasso_fit <- train(
+    medv ~ ., 
+    data = df, 
+    method = "glmnet", 
+    trControl = ctrl, 
+    tuneGrid = grid, 
+    standardize = TRUE, 
+    family = "gaussian"
+)
+
+plot(lasso_fit)
+```
